@@ -16,6 +16,7 @@ our %opts = (
     fh => undef,
     exclude => undef,
     format => "sql",
+    debug => 0,
 );
 
 my %orig;
@@ -216,6 +217,16 @@ sub pre_query {
         # $sth->{ParamValues} and they override arguments sent in to
         # $sth->execute()
 
+        # this attribute often has undef values before execution,
+        # so we only look at it now for debugging purposes
+        if ($opts{debug} && $sth && $sth->{ParamValues}) {
+            # workaround DBD::mysql issue #447
+            # my %values = %{$sth->{ParamValues}};
+            $log->{binds_pre} = do {
+                my $h = $sth->{ParamValues};
+                map {$_ => $h->{$_}} keys %$h;
+            };
+        }
         $log->{args} = $args;
         $log->{_dbh} = $dbh;     # will be used for quoting the values
     }
@@ -244,6 +255,10 @@ sub post_query {
         # make a copy so we can merge two sets of values:
         my @args = @{ $log->{args} };
         delete $log->{args} unless $opts{debug};
+        $log->{binds} = do {
+            my $h = $sth->{ParamValues};
+            map {$_ => $h->{$_}} keys %$h;
+        } if $opts{debug};
 
         if (my $values = _param_values($sth)) {
             foreach my $place (keys %$values) {
