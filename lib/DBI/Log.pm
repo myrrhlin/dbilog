@@ -96,8 +96,14 @@ sub install {
     *DBI::db::do = sub {
         my ($dbh, $query, $yup, @args) = @_;
         my $log = pre_query("do", $dbh, undef, $query, \@args);
-        my $retval = $orig{do}->($dbh, $query, $yup, @args);
+        my ($retval, $e);
+        my $lived = eval { $retval = $orig{do}->($dbh, $query, $yup, @args); 1 };
+        unless ($lived) {
+            $e = $@;
+            $log->{exception} = $e;
+        }
         post_query($log);
+        die $e if $e;
         return $retval;
     };
 }
