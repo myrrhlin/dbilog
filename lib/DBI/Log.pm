@@ -265,6 +265,7 @@ sub post_query {
             $mesg .= "-- $caller->{sub} $caller->{file} $caller->{line}\n";
         }
         $mesg .= $log->{query} . "\n";
+        $mesg .= '-- EXCEPTION: ' . $log->{exception} . "\n" if $log->{exception};
         print {$opts{fh}} $mesg;
         if ($opts{timing}) {
             print {$opts{fh}} "-- $log->{time_taken}s\n";
