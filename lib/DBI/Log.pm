@@ -239,12 +239,9 @@ sub post_query {
         my @args = @{ $log->{args} };
         delete $log->{args} unless $opts{debug};
 
-        my $values = $sth && $sth->{ParamValues};
-        my @k = sort {$a <=> $b} grep /^\d+$/, keys %$values;
-        if (@k) {
-            my $lowest = $k[0];  # because keys can start with 0 or 1
-            foreach my $place (@k) {
-                $args[$place - $lowest] = $values->{$place};
+        if (my $values = _param_values($sth)) {
+            foreach my $place (keys %$values) {
+                $args[$place - 1] = $values->{$place};
             }
         }
 
@@ -269,6 +266,52 @@ sub post_query {
         print {$opts{fh}} "\n";
     }
     return;
+}
+
+# sanity check the ParamValues attribute.
+# some drivers may not return useful data.
+sub _params_check {
+    return unless my $params = $_[0];
+    my $check = {conformant => 0};
+    # ParamValues attribute must be a hashref
+    return $check unless ($params && ref $params eq 'HASH');
+    # no judgment if hashref is empty
+    return unless %$params;
+    # there must be integer keys
+    return $check unless
+        my @k = sort { $a <=> $b } grep /^\d+$/, keys %$params;
+    my $first = $k[0];
+    # first key is either 0 or 1
+    return $check unless ($first == 0 || $first == 1);
+    # only numerical keys, no extraneous
+    return $check unless @k == scalar keys %$params;
+    # last key demonstrates a monotonic integer sequence
+    return $check unless $k[-1] == $first + @k - 1;
+
+    # okay, it meets our requirements, we can use it
+    return $check = {
+        conformant => 1,
+        offset => $first,
+    };
+}
+
+my %driver_check;
+
+# Guarantees we get usable result, conforming with DBI's declared API: a
+# hashref with integer keys starting at 1, or undef.
+# Will stop checking a driver once a result with placeholders is observed.
+sub _param_values {
+	return unless my $sth = $_[0];
+	my $params = $sth->{ParamValues};
+
+	my $dbh = $sth->{Database};
+	my $drivername = $dbh->{Driver}{Name};
+	my $check = $driver_check{$drivername} ||= _params_check($params);
+	return unless $check && $check->{conformant};
+
+	my $adjust = $check->{offset} ? 0 : 1;
+	my %values = map { $_ + $adjust => $params->{$_} } keys %$params;
+	return \%values;
 }
 
 sub to_json {
