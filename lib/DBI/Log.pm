@@ -40,7 +40,7 @@ sub install {
 
     *DBI::st::execute = sub {
         my ($sth, @args) = @_;
-        my $log = pre_query("execute", $sth->{Database}, $sth, $sth->{Statement}, \@args);
+        my $log = pre_query("execute", $sth, \@args);
         my $retval = $orig{execute}->($sth, @args);
         post_query($log);
         return $retval;
@@ -48,7 +48,7 @@ sub install {
 
     *DBI::db::selectall_arrayref = sub {
         my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("selectall_arrayref", $dbh, undef, $query, \@args);
+        my $log = pre_query("selectall_arrayref", $dbh, $query, \@args);
         my $retval = $orig{selectall_arrayref}->($dbh, $query, $yup, @args);
         post_query($log);
         return $retval;
@@ -56,7 +56,7 @@ sub install {
 
     *DBI::db::selectcol_arrayref = sub {
         my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("selectcol_arrayref", $dbh, undef, $query, \@args);
+        my $log = pre_query("selectcol_arrayref", $dbh, $query, \@args);
         my $retval = $orig{selectcol_arrayref}->($dbh, $query, $yup, @args);
         post_query($log);
         return $retval;
@@ -64,7 +64,7 @@ sub install {
 
     *DBI::db::selectall_hashref = sub {
         my ($dbh, $query, $key, $yup, @args) = @_;
-        my $log = pre_query("selectall_hashref", $dbh, undef, $query, \@args);
+        my $log = pre_query("selectall_hashref", $dbh, $query, \@args);
         my $retval = $orig{selectall_hashref}->($dbh, $query, $key, $yup, @args);
         post_query($log);
         return $retval;
@@ -72,7 +72,7 @@ sub install {
 
     *DBI::db::selectrow_arrayref = sub {
         my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("selectrow_arrayref", $dbh, undef, $query, \@args);
+        my $log = pre_query("selectrow_arrayref", $dbh, $query, \@args);
         my $retval = $orig{selectrow_arrayref}->($dbh, $query, $yup, @args);
         post_query($log);
         return $retval;
@@ -80,7 +80,7 @@ sub install {
 
     *DBI::db::selectrow_array = sub {
         my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("selectrow_array", $dbh, undef, $query, \@args);
+        my $log = pre_query("selectrow_array", $dbh, $query, \@args);
         my $retval = $orig{selectrow_array}->($dbh, $query, $yup, @args);
         post_query($log);
         return $retval;
@@ -88,7 +88,7 @@ sub install {
 
     *DBI::db::selectrow_hashref = sub {
         my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("selectrow_hashref", $dbh, undef, $query, \@args);
+        my $log = pre_query("selectrow_hashref", $dbh, $query, \@args);
         my $retval = $orig{selectrow_hashref}->($dbh, $query, $yup, @args);
         post_query($log);
         return $retval;
@@ -96,7 +96,7 @@ sub install {
 
     *DBI::db::do = sub {
         my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("do", $dbh, undef, $query, \@args);
+        my $log = pre_query("do", $dbh, $query, \@args);
         my ($retval, $e);
         my $lived = eval { $retval = $orig{do}->($dbh, $query, $yup, @args); 1 };
         unless ($lived) {
@@ -141,7 +141,19 @@ sub import {
 }
 
 sub pre_query {
-    my ($name, $dbh, $sth, $query, $args) = @_;
+    # this function has two signatures, one with a statement handle (for 
+    # the execute function), and one without (for # all the other functions).
+    # First we must determine which it is, to unpack the arguments appropriately:
+    my ($name, $dbh, $sth, $query, $args);
+    if (ref $_[1] eq 'DBI::st') {
+        # we got a statement handle, so signature is:
+        ($name, $sth, $args) = @_;
+        $dbh   = $sth->{Database};
+        $query = $sth->{Statement};
+    } else {
+        # it must be a database handle, so signature is:
+        ($name, $dbh, $query, $args) = @_;
+    }
     my $log = {
         _sth => $sth,
     };
