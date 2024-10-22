@@ -109,6 +109,28 @@ sub install {
     };
 }
 
+# wraps original code with pre and post query functions, with exception handling
+# this wip does not yet handle $sth (e.g. 'execute')
+# also @args are passed as list, rather than array ref
+sub wrap_function {
+    my $name = shift;  # e.g., 'do'
+    return my $sub = sub {
+        # @_ is: $dbh, $query, $yup, @args
+        # or @_ is: $sth, @args (execute)
+        # so here we are making a copy of all the args...
+        my $log = pre_query($name, @_);
+        my ($retval, $e);
+        my $lived = eval { $retval = $orig{$name}->(@_); 1 };
+        unless ($lived) {
+            $e = $@;
+            $log->{exception} = $e;
+        }
+        post_query($log);
+        die $e if $e;
+        return $retval;
+    };
+}
+
 sub uninstall {
     return unless is_installed();
     no strict 'refs';
