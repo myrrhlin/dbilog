@@ -38,6 +38,7 @@ sub install {
 
     no warnings 'redefine';
 
+    # all methods below call execute internally
     *DBI::st::execute = sub {
         my ($sth, @args) = @_;
         my $log = pre_query("execute", $sth, \@args);
@@ -46,67 +47,13 @@ sub install {
         return $retval;
     };
 
-    *DBI::db::selectall_arrayref = sub {
-        my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("selectall_arrayref", $dbh, $query, \@args);
-        my $retval = $orig{selectall_arrayref}->($dbh, $query, $yup, @args);
-        post_query($log);
-        return $retval;
-    };
-
-    *DBI::db::selectcol_arrayref = sub {
-        my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("selectcol_arrayref", $dbh, $query, \@args);
-        my $retval = $orig{selectcol_arrayref}->($dbh, $query, $yup, @args);
-        post_query($log);
-        return $retval;
-    };
-
-    *DBI::db::selectall_hashref = sub {
-        my ($dbh, $query, $key, $yup, @args) = @_;
-        my $log = pre_query("selectall_hashref", $dbh, $query, \@args);
-        my $retval = $orig{selectall_hashref}->($dbh, $query, $key, $yup, @args);
-        post_query($log);
-        return $retval;
-    };
-
-    *DBI::db::selectrow_arrayref = sub {
-        my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("selectrow_arrayref", $dbh, $query, \@args);
-        my $retval = $orig{selectrow_arrayref}->($dbh, $query, $yup, @args);
-        post_query($log);
-        return $retval;
-    };
-
-    *DBI::db::selectrow_array = sub {
-        my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("selectrow_array", $dbh, $query, \@args);
-        my $retval = $orig{selectrow_array}->($dbh, $query, $yup, @args);
-        post_query($log);
-        return $retval;
-    };
-
-    *DBI::db::selectrow_hashref = sub {
-        my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("selectrow_hashref", $dbh, $query, \@args);
-        my $retval = $orig{selectrow_hashref}->($dbh, $query, $yup, @args);
-        post_query($log);
-        return $retval;
-    };
-
-    *DBI::db::do = sub {
-        my ($dbh, $query, $yup, @args) = @_;
-        my $log = pre_query("do", $dbh, $query, \@args);
-        my ($retval, $e);
-        my $lived = eval { $retval = $orig{do}->($dbh, $query, $yup, @args); 1 };
-        unless ($lived) {
-            $e = $@;
-            $log->{exception} = $e;
-        }
-        post_query($log);
-        die $e if $e;
-        return $retval;
-    };
+    *DBI::db::selectall_arrayref = wrap_function('selectall_arrayref');
+    *DBI::db::selectcol_arrayref = wrap_function('selectcol_arrayref');
+    *DBI::db::selectrow_arrayref = wrap_function('selectrow_arrayref');
+    *DBI::db::selectrow_array    = wrap_function('selectrow_array');
+    *DBI::db::selectrow_hashref  = wrap_function('selectrow_hashref');
+    *DBI::db::selectall_hashref  = wrap_function('selectall_hashref');
+    *DBI::db::do                 = wrap_function('do');
 }
 
 # wraps original code with pre and post query functions, with exception handling
