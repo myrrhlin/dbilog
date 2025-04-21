@@ -113,10 +113,10 @@ sub install {
 # this wip does not yet handle $sth (e.g. 'execute')
 # also @args are passed as list, rather than array ref
 sub wrap_function {
-    my $name = shift;  # e.g., 'do'
+    my $name = $_[0];  # e.g., 'do'
+    return unless ref $orig{$name} eq 'CODE';
     return my $sub = sub {
-        # @_ is: $dbh, $query, $yup, @args
-        # or @_ is: $sth, @args (execute)
+        # a closure over $name
         # so here we are making a copy of all the args...
         my $log = pre_query($name, @_);
         my ($retval, $e);
@@ -162,22 +162,31 @@ sub import {
     }
 }
 
+# TODO don't copy the args more than once. go back to arrayref.
 sub pre_query {
-    # this function has two signatures, one with a statement handle (for 
-    # the execute function), and one without (for # all the other functions).
-    # First we must determine which it is, to unpack the arguments appropriately:
-    my ($name, $dbh, $sth, $query, $args);
-    if (ref $_[1] eq 'DBI::st') {
+    # of these, we only need: $name, $sth OR ($dbh, $query), @args
+    my ($name, $dbh, $sth, $query, $key, $yup, @args);
+    # This function has three signatures, to support the above 8 methods.
+    # First determine which signature and unpack the arguments appropriately:
+    # 1) @_ is: $dbh, $query, $key, $yup, @args (selectall_hashref)
+    # 2) @_ is: $sth, @args (execute)
+    # 3) @_ is: $dbh, $query, $yup, @args (the rest)
+    if ($_[0] eq 'selectall_hashref') {
+        ($name, $dbh, $query, $key, $yup, @args) = @_;  # we dont need: $key, $yup
+    } elsif (ref $_[1] eq 'DBI::st') { # execute
         # we got a statement handle, so signature is:
-        ($name, $sth, $args) = @_;
+        ($name, $sth, @args) = @_;
         $dbh   = $sth->{Database};
         $query = $sth->{Statement};
     } else {
         # it must be a database handle, so signature is:
-        ($name, $dbh, $query, $args) = @_;
+        ($name, $dbh, $query, $yup, @args) = @_;  # we dont need: $yup
     }
+    # temporarily necessary while we have arrayref or array @args:
+    @args = @{ $args[0] } if @args ==1 && ref $args[0] eq 'ARRAY';
+
     my $log = {
-        _sth => $sth,
+        _sth => $sth, # can be undef
     };
 
     my $mcount = 0;
@@ -261,7 +270,7 @@ sub pre_query {
                 map {$_ => $h->{$_}} keys %$h;
             };
         }
-        $log->{args} = $args;
+        $log->{args} = \@args;
         $log->{_dbh} = $dbh;     # will be used for quoting the values
     }
 
