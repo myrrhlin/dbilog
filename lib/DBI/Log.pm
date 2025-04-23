@@ -135,7 +135,10 @@ sub import {
 
 sub pre_query {
     my ($name, $dbh, $sth, $query, $args) = @_;
-    my $log = {};
+    my $log = {
+        _sth => $sth,
+    };
+
     my $mcount = 0;
 
     # Some DBI functions are composed of other DBI functions, so make sure we
@@ -198,7 +201,7 @@ sub pre_query {
     }
 
     if (ref($query) && ref($query) eq "DBI::st") {
-        $sth = $query;
+        $sth = $log->{_sth} = $query;
         $query = $query->{Statement};
     }
 
@@ -207,44 +210,15 @@ sub pre_query {
         # $sth->{ParamValues} and they override arguments sent in to
         # $sth->execute()
 
-        my @args_copy = @$args;
-        my %values;
-        if ($sth && $sth->{ParamValues}) {
-            %values = %{$sth->{ParamValues}};
-        }
-        foreach my $key (keys %values) {
-            # expecting keys are placeholder index starting at 1 (not all drivers conform)
-            next unless defined $key && $key =~ /^\d+$/;
-            # with ->do or ->execute, values not populated prior to execution
-            next unless defined $values{$key};
-            $args_copy[$key - 1] = $values{$key};
-        }
-
-        for my $i (0 .. @args_copy - 1) {
-            my $value = $args_copy[$i];
-            $value = $dbh->quote($value);
-            $query =~ s{\?}{$value}e;
-        }
+        $log->{args} = $args;
+        $log->{_dbh} = $dbh;     # will be used for quoting the values
     }
 
     $query =~ s/^\s*\n|\s*$//g;
     $query =~ s/;*$/;/;
-    $log->{time_started} = Time::HiRes::time();
     $log->{query} = $query;
     $log->{stack} = \@stack;
-    if ($opts{format} eq "json") {
-        # For JSON output we don't want to output anything yet, so post_query()
-        # can emit the whole JSON object, just remember them.
-    }
-    else {
-        my $mesg;
-        $mesg .= "-- " . scalar(localtime()) . "\n";
-        for my $caller (@stack) {
-            $mesg .= "-- $caller->{sub} $caller->{file} $caller->{line}\n";
-        }
-        $mesg .= "$query\n";
-        print {$opts{fh}} $mesg;
-    }
+    $log->{time_started} = Time::HiRes::time();
 
     return $log;
 }
@@ -252,22 +226,49 @@ sub pre_query {
 sub post_query {
     my ($log) = @_;
     return if $log->{skip};
+
     $log->{time_ended} = Time::HiRes::time();
     $log->{time_taken} = sprintf "%.3f", $log->{time_ended} - $log->{time_started};
 
+    my $dbh = delete $log->{_dbh};
+    my $sth = delete $log->{_sth};
+
+    # (actually we only have $dbh if replace_placeholders was true)
+    if ($dbh && $opts{replace_placeholders}) {
+        # make a copy so we can merge two sets of values:
+        my @args = @{ $log->{args} };
+        delete $log->{args} unless $opts{debug};
+
+        my $values = $sth && $sth->{ParamValues};
+        my @k = sort {$a <=> $b} grep /^\d+$/, keys %$values;
+        if (@k) {
+            my $lowest = $k[0];  # because keys can start with 0 or 1
+            foreach my $place (@k) {
+                $args[$place - $lowest] = $values->{$place};
+            }
+        }
+
+        foreach my $val (@args) {
+            my $value = $dbh->quote($val);
+            $log->{query} =~ s{\?}{$value}e;
+        }
+    }
     if ($opts{format} eq "json") {
-        # print all the info as JSON
         print {$opts{fh}} to_json($log) . "\n";
     }
     else {
-        # For SQL output format, pre_query already printed most of the info, we
-        # just need to add the time taken - and that only if we're doing
-        # timings...
+        my $mesg = "-- " . scalar(localtime()) . "\n";
+        for my $caller (@{ $log->{stack} }) {
+            $mesg .= "-- $caller->{sub} $caller->{file} $caller->{line}\n";
+        }
+        $mesg .= $log->{query} . "\n";
+        print {$opts{fh}} $mesg;
         if ($opts{timing}) {
             print {$opts{fh}} "-- $log->{time_taken}s\n";
         }
         print {$opts{fh}} "\n";
     }
+    return;
 }
 
 sub to_json {
