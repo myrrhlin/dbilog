@@ -519,6 +519,8 @@ Jacob Gelbman, E<lt>gelbman@gmail.comE<gt>
 
 =item * David Precious (BIGPRESH) - E<lt>davidp@preshweb.co.ukE<gt>
 
+=item * pyrrhlin (PYRRHLIN)
+
 =back
 
 =head1 COPYRIGHT AND LICENSE
